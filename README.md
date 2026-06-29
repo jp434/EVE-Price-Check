@@ -60,7 +60,7 @@ time, jump risk, ship cargo capacity, or market volatility between when
 you check this and when you actually execute the trade. The numbers are
 gross-of-freight profit; treat freight/risk as your own judgment call on
 top of these figures. Fee rates (sales tax base 7.5%, broker fee base 3%)
-are current as of mid-2026 per CCP's support docs — if CCP changes these
+are current as of mid-2026 per FC's support docs — if FC changes these
 in a future balance patch, update the constants at the top of the "Fees
 and cross-regional arbitrage" section in `market_depth.py`.
 

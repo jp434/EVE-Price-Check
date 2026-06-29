@@ -1,7 +1,7 @@
 # EVE Market Depth — Local Web GUI
 
 A small local web app for looking up EVE Online order-book depth across
-regions, using CCP's public ESI API.
+regions, using FC's public ESI API.
 
 ## Setup
 

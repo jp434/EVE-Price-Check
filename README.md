@@ -21,20 +21,15 @@ Then open **http://127.0.0.1:5000** in your browser.
 
 ### Depth tab
 - Enter an item name (e.g. `Tritanium`, `PLEX`) and one or more regions,
-  comma-separated (e.g. `Jita, Amarr, Dodixie`). Hub names like "Jita" are
-  automatically mapped to their region ("The Forge").
-- Click **Query** (or press Enter).
-- Each region gets its own panel: best bid/ask/spread, a depth chart
-  (bids stepping left, asks stepping right from the spread), and tables
-  of the top 10 price levels per side.
+  comma-separated (e.g. `Jita, Amarr, Dodixie`). The major trade hub names like "Jita" are
+  automatically mapped to their region ("The Forge"). Otherwise, region names are used (including
+  "Yasna Zakh" for Zarzakh).
 - PLEX is a special case — it trades on a single unified global market,
   not per-region. The app detects this automatically and shows the
   global PLEX book regardless of which regions you typed in.
 
 ### Arbitrage tab
-- Enter an item and **two or more** regions to compare. Every directional
-  pair is checked (e.g. with 3 regions, that's 6 directions: A→B, B→A,
-  A→C, C→A, B→C, C→B).
+- Enter an item and **two or more** regions to compare. 
 - For each pair, "buy" = the source region's best ask, "sell" = the
   destination region's best bid.
 - Set your **Accounting** and **Broker Relations** skill levels (0–5) and
@@ -76,9 +71,7 @@ and cross-regional arbitrage" section in `market_depth.py`.
 - Click any item (from search results or the tree) to jump to the **Depth**
   tab with that item pre-filled, ready to query.
 - The category tree itself is built once per server run and cached in
-  memory for 6 hours — it's reference data that essentially never changes
-  mid-session, and building it requires walking every market group via
-  ESI, so we don't want to redo that on every page load.
+  memory for 6 hours.
 
 ## Files
 

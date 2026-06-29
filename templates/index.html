@@ -1,0 +1,1801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Market Depth // ESI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0d10;
+    --panel: #11161b;
+    --panel-border: #1f2933;
+    --text: #c8d3dc;
+    --text-dim: #5f7180;
+    --text-bright: #eef3f6;
+    --bid: #4fc3dc;
+    --bid-dim: #2a5b66;
+    --ask: #e8943a;
+    --ask-dim: #6b4a22;
+    --error: #e85d5d;
+    --mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* faint scanline texture, very subtle */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.012) 0px,
+      rgba(255,255,255,0.012) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    z-index: 1000;
+  }
+
+  .wrap {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 32px 20px 80px;
+  }
+
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--panel-border);
+    padding-bottom: 18px;
+    margin-bottom: 28px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .brand-mark {
+    color: var(--bid);
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: 0.02em;
+  }
+
+  .brand-sub {
+    color: var(--text-dim);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .clock {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+
+  /* search panel */
+  .search-panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    padding: 20px;
+    margin-bottom: 28px;
+  }
+
+  .search-row {
+    display: grid;
+    grid-template-columns: 1fr 1.4fr auto;
+    gap: 12px;
+    align-items: end;
+  }
+
+  @media (max-width: 680px) {
+    .search-row { grid-template-columns: 1fr; }
+  }
+
+  .field label {
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+
+  .field input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--panel-border);
+    color: var(--text-bright);
+    font-family: var(--mono);
+    font-size: 14px;
+    padding: 10px 12px;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+
+  .field input:focus {
+    border-color: var(--bid);
+  }
+
+  .field .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 6px;
+  }
+
+  button.go {
+    background: var(--bid);
+    color: #06181c;
+    border: none;
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 11px 22px;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.05s ease;
+    white-space: nowrap;
+  }
+
+  button.go:hover { background: #6fd4ea; }
+  button.go:active { transform: translateY(1px); }
+  button.go:disabled {
+    background: var(--panel-border);
+    color: var(--text-dim);
+    cursor: not-allowed;
+  }
+
+  .quick-hubs {
+    margin-top: 14px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .quick-hubs span {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .chip {
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+
+  .chip:hover {
+    border-color: var(--bid);
+    color: var(--bid);
+  }
+
+  /* status / messages */
+  #status {
+    margin: 16px 0;
+    font-size: 13px;
+  }
+
+  #status.loading { color: var(--text-dim); }
+  #status.error { color: var(--error); }
+  #status .note {
+    color: var(--ask);
+    background: rgba(232,148,58,0.08);
+    border: 1px solid var(--ask-dim);
+    padding: 10px 14px;
+    display: block;
+  }
+
+  /* results */
+  .item-header {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 18px;
+  }
+  .item-header .item-name {
+    color: var(--text-bright);
+    font-weight: 700;
+    font-size: 16px;
+  }
+
+  .region-panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    margin-bottom: 22px;
+  }
+
+  .region-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  .region-name {
+    color: var(--text-bright);
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .region-id {
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+
+  .stats {
+    display: flex;
+    gap: 22px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--panel-border);
+    flex-wrap: wrap;
+  }
+
+  .stat .stat-label {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .stat .stat-value {
+    font-size: 15px;
+    font-weight: 600;
+    margin-top: 2px;
+  }
+
+  .stat .stat-system {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  .stat.bid .stat-value { color: var(--bid); }
+  .stat.ask .stat-value { color: var(--ask); }
+  .stat.spread .stat-value { color: var(--text-bright); }
+
+  /* chart */
+  .chart-area {
+    padding: 18px 18px 6px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  /* tables */
+  .tables {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+
+  @media (max-width: 680px) {
+    .tables { grid-template-columns: 1fr; }
+  }
+
+  .table-col {
+    padding: 14px 18px 18px;
+  }
+
+  .table-col + .table-col {
+    border-left: 1px solid var(--panel-border);
+  }
+
+  @media (max-width: 680px) {
+    .table-col + .table-col {
+      border-left: none;
+      border-top: 1px solid var(--panel-border);
+    }
+  }
+
+  .table-col h3 {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 10px;
+    font-weight: 600;
+  }
+
+  .table-col.buy h3 { color: var(--bid); }
+  .table-col.sell h3 { color: var(--ask); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+  }
+
+  th {
+    text-align: right;
+    color: var(--text-dim);
+    font-weight: 500;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  th:first-child, td:first-child { text-align: left; }
+
+  td {
+    text-align: right;
+    padding: 4px 6px;
+    color: var(--text);
+    position: relative;
+  }
+
+  tr.depth-row td.price-cell {
+    font-weight: 600;
+  }
+
+  .table-col.buy td.price-cell { color: var(--bid); }
+  .table-col.sell td.price-cell { color: var(--ask); }
+
+  /* depth bar behind cumulative cell */
+  .depth-bar-wrap {
+    position: relative;
+  }
+  .depth-bar {
+    position: absolute;
+    top: 0; bottom: 0; right: 0;
+    z-index: 0;
+  }
+  .table-col.buy .depth-bar { background: rgba(79,195,220,0.10); }
+  .table-col.sell .depth-bar { background: rgba(232,148,58,0.10); }
+  .depth-bar-text {
+    position: relative;
+    z-index: 1;
+  }
+
+  .empty-side {
+    color: var(--text-dim);
+    font-style: normal;
+    padding: 10px 0;
+    font-size: 12px;
+  }
+
+  .more-levels {
+    color: var(--text-dim);
+    font-size: 11px;
+    margin-top: 8px;
+  }
+
+  footer {
+    margin-top: 40px;
+    color: var(--text-dim);
+    font-size: 11px;
+    border-top: 1px solid var(--panel-border);
+    padding-top: 16px;
+  }
+
+  footer a { color: var(--bid); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  /* tabs */
+  .tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 0;
+  }
+
+  .tab-btn {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-bottom: none;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 10px 18px;
+    cursor: pointer;
+  }
+
+  .tab-btn.active {
+    color: var(--text-bright);
+    background: var(--panel);
+    border-bottom: 2px solid var(--bid);
+    margin-bottom: -1px;
+    padding-bottom: 11px;
+  }
+
+  .tab-btn:not(.active):hover {
+    color: var(--text);
+  }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* arbitrage-specific */
+  .skills-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--panel-border);
+  }
+
+  @media (max-width: 680px) {
+    .skills-row { grid-template-columns: 1fr 1fr; }
+  }
+
+  .skills-row .field input {
+    padding: 8px 10px;
+  }
+
+  .fee-mode-toggle {
+    display: flex;
+    gap: 0;
+    margin-top: 14px;
+  }
+
+  .fee-mode-toggle button {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--panel-border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 9px 12px;
+    cursor: pointer;
+  }
+
+  .fee-mode-toggle button:first-child { border-right: none; }
+
+  .fee-mode-toggle button.active {
+    background: var(--bid-dim);
+    color: var(--text-bright);
+    border-color: var(--bid);
+  }
+
+  .fee-mode-hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 8px;
+  }
+
+  .fee-summary {
+    display: flex;
+    gap: 24px;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin: 14px 0;
+    flex-wrap: wrap;
+  }
+  .fee-summary b { color: var(--text-bright); }
+
+  .arb-table-wrap {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    overflow-x: auto;
+  }
+
+  table.arb-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    min-width: 760px;
+  }
+
+  table.arb-table th {
+    text-align: right;
+    color: var(--text-dim);
+    font-weight: 500;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--panel-border);
+    white-space: nowrap;
+  }
+
+  table.arb-table th:nth-child(1),
+  table.arb-table th:nth-child(2) {
+    text-align: left;
+  }
+
+  table.arb-table td {
+    text-align: right;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--panel-border);
+    white-space: nowrap;
+  }
+
+  table.arb-table td:nth-child(1),
+  table.arb-table td:nth-child(2) {
+    text-align: left;
+  }
+
+  table.arb-table tbody tr:last-child td { border-bottom: none; }
+  table.arb-table tbody tr:hover td { background: rgba(79,195,220,0.05); }
+
+  .route {
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+  .route .arrow { color: var(--bid); margin: 0 4px; }
+  .route-systems {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  .net-pct {
+    font-weight: 700;
+  }
+  .net-pct.positive { color: var(--bid); }
+
+  .no-arb {
+    padding: 30px 18px;
+    color: var(--text-dim);
+    text-align: center;
+    font-size: 13px;
+  }
+
+  /* catalog */
+  .catalog-tree-wrap {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+  }
+
+  .catalog-tree-header {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  #catalog-tree {
+    padding: 6px 0;
+    max-height: 600px;
+    overflow-y: auto;
+  }
+
+  .tree-node { }
+
+  .tree-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    user-select: none;
+  }
+
+  .tree-row:hover { background: rgba(79,195,220,0.06); }
+
+  .tree-toggle {
+    color: var(--text-dim);
+    width: 14px;
+    display: inline-block;
+    text-align: center;
+    flex-shrink: 0;
+    font-size: 10px;
+  }
+
+  .tree-name { color: var(--text); }
+  .tree-count {
+    color: var(--text-dim);
+    font-size: 11px;
+    margin-left: auto;
+  }
+
+  .tree-children {
+    margin-left: 18px;
+    border-left: 1px solid var(--panel-border);
+    display: none;
+  }
+
+  .tree-children.expanded { display: block; }
+
+  .tree-loading {
+    padding: 8px 16px;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+
+  .item-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 16px;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+
+  .item-row:hover {
+    background: rgba(79,195,220,0.08);
+    color: var(--bid);
+  }
+
+  .item-row .type-id {
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+
+  .search-results-wrap {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    margin-bottom: 18px;
+  }
+
+  .search-results-header {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  .search-result-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--panel-border);
+    cursor: pointer;
+  }
+
+  .search-result-row:last-child { border-bottom: none; }
+
+  .search-result-row:hover {
+    background: rgba(79,195,220,0.06);
+  }
+
+  .search-result-row .name {
+    color: var(--text-bright);
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  .search-result-row .group-name {
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+
+  /* fitting tab */
+  textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--panel-border);
+    color: var(--text-bright);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    padding: 10px 12px;
+    outline: none;
+    resize: vertical;
+    transition: border-color 0.15s ease;
+    line-height: 1.6;
+  }
+
+  textarea:focus { border-color: var(--bid); }
+
+  .fit-summary {
+    display: grid;
+    gap: 12px;
+    margin-bottom: 22px;
+  }
+
+  .fit-summary-card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .fit-summary-card.cheapest { border-color: var(--bid); }
+
+  .fit-summary-region {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+
+  .fit-summary-total {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--bid);
+    align-self: flex-end;
+  }
+
+  .fit-summary-card:not(.cheapest) .fit-summary-total { color: var(--text); }
+
+  .fit-summary-missing {
+    font-size: 11px;
+    color: var(--error);
+    margin-left: 12px;
+  }
+
+  .fit-item-table-wrap {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    overflow-x: auto;
+  }
+
+  table.fit-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    min-width: 600px;
+  }
+
+  table.fit-table th {
+    text-align: right;
+    color: var(--text-dim);
+    font-weight: 500;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--panel-border);
+    white-space: nowrap;
+  }
+
+  table.fit-table th:nth-child(1),
+  table.fit-table th:nth-child(2) { text-align: left; }
+
+  table.fit-table td {
+    text-align: right;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--panel-border);
+    white-space: nowrap;
+  }
+
+  table.fit-table td:nth-child(1),
+  table.fit-table td:nth-child(2) { text-align: left; }
+
+  table.fit-table tbody tr:last-child td { border-bottom: none; }
+  table.fit-table tbody tr:hover td { background: rgba(79,195,220,0.04); }
+
+  .fit-role-pill {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border: 1px solid var(--panel-border);
+    color: var(--text-dim);
+    margin-left: 6px;
+  }
+
+  .unresolved-item td { color: var(--text-dim); font-style: italic; }
+
+  .fit-total-row td {
+    border-top: 1px solid var(--panel-border);
+    font-weight: 700;
+    color: var(--text-bright);
+  }
+
+  .no-price { color: var(--text-dim); }
+  .cheapest-price { color: var(--bid); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <span class="brand-mark">▣ DEPTH</span>
+      <span class="brand-sub">ESI market terminal</span>
+    </div>
+    <div class="clock" id="clock"></div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="depth">Depth</button>
+    <button class="tab-btn" data-tab="arbitrage">Arbitrage</button>
+    <button class="tab-btn" data-tab="catalog">Catalog</button>
+    <button class="tab-btn" data-tab="fitting">Fitting</button>
+  </div>
+
+  <div class="tab-panel active" id="tab-depth">
+    <div class="search-panel">
+      <div class="search-row">
+        <div class="field">
+          <label for="item">Item</label>
+          <input type="text" id="item" placeholder="Tritanium, PLEX, ..." autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="regions">Regions (comma-separated)</label>
+          <input type="text" id="regions" placeholder="Jita, Amarr, Dodixie" autocomplete="off">
+          <div class="hint">Hub names like Jita/Amarr work — they map to their region automatically.</div>
+        </div>
+        <button class="go" id="go">Query</button>
+      </div>
+      <div class="quick-hubs">
+        <span>Quick fill:</span>
+        <button class="chip" data-fill-item="Tritanium">Tritanium</button>
+        <button class="chip" data-fill-item="PLEX">PLEX</button>
+        <button class="chip" data-fill-regions="Jita, Amarr, Dodixie, Rens, Hek">Major hubs</button>
+        <button class="chip" data-fill-regions="Jita">Jita only</button>
+      </div>
+    </div>
+
+    <div id="status"></div>
+    <div id="results"></div>
+  </div>
+
+  <div class="tab-panel" id="tab-arbitrage">
+    <div class="search-panel">
+      <div class="search-row">
+        <div class="field">
+          <label for="arb-item">Item</label>
+          <input type="text" id="arb-item" placeholder="Tritanium, Nanite Repair Paste, ..." autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="arb-regions">Regions to compare (comma-separated, 2+)</label>
+          <input type="text" id="arb-regions" placeholder="Jita, Amarr, Dodixie, Rens, Hek" autocomplete="off">
+          <div class="hint">Every directional pair among these regions is checked for a profitable spread.</div>
+        </div>
+        <button class="go" id="arb-go">Find Arbitrage</button>
+      </div>
+      <div class="quick-hubs">
+        <span>Quick fill:</span>
+        <button class="chip" data-arb-fill-item="Tritanium">Tritanium</button>
+        <button class="chip" data-arb-fill-regions="Jita, Amarr, Dodixie, Rens, Hek">Major hubs</button>
+      </div>
+
+      <div class="skills-row">
+        <div class="field">
+          <label for="arb-accounting">Accounting (skill, 0–5)</label>
+          <input type="number" id="arb-accounting" min="0" max="5" value="0">
+        </div>
+        <div class="field">
+          <label for="arb-broker">Broker Relations (skill, 0–5)</label>
+          <input type="number" id="arb-broker" min="0" max="5" value="0">
+        </div>
+        <div class="field">
+          <label for="arb-faction">Faction standing (0–10)</label>
+          <input type="number" id="arb-faction" min="0" max="10" value="0">
+        </div>
+        <div class="field">
+          <label for="arb-corp">Corp standing (0–10)</label>
+          <input type="number" id="arb-corp" min="0" max="10" value="0">
+        </div>
+      </div>
+
+      <div class="fee-mode-toggle">
+        <button class="active" data-fee-mode="limit">Limit orders (realistic default)</button>
+        <button data-fee-mode="instant">Instant trade (no fees)</button>
+      </div>
+      <div class="fee-mode-hint" id="fee-mode-hint">
+        Assumes you place a limit order on both ends — broker fee applies to both legs, sales tax applies when your sell order fills. This is the safer, conservative estimate.
+      </div>
+    </div>
+
+    <div id="arb-status"></div>
+    <div id="arb-results"></div>
+  </div>
+
+  <div class="tab-panel" id="tab-catalog">
+    <div class="search-panel">
+      <div class="search-row" style="grid-template-columns: 1fr auto;">
+        <div class="field">
+          <label for="catalog-search">Search items</label>
+          <input type="text" id="catalog-search" placeholder="Type at least 2 characters, e.g. 'rifter', 'tritanium' ..." autocomplete="off">
+        </div>
+        <button class="go" id="catalog-search-go">Search</button>
+      </div>
+      <div class="hint" style="margin-top:10px;">
+        Or browse the category tree below — it mirrors the in-game market's
+        category structure. Click an item to use it in the Depth tab.
+      </div>
+    </div>
+
+    <div id="catalog-status"></div>
+    <div id="catalog-search-results"></div>
+
+    <div class="catalog-tree-wrap" id="catalog-tree-wrap">
+      <div class="catalog-tree-header">Browse by category</div>
+      <div id="catalog-tree"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-fitting">
+    <div class="search-panel">
+      <div class="field" style="margin-bottom:12px">
+        <label for="fitting-eft">EFT Fitting Block</label>
+        <textarea id="fitting-eft" rows="12" placeholder="Paste your EFT fitting here, e.g.:
+
+[Rifter, PvP Fit]
+
+Gyrostabilizer II
+Nanofiber Internal Structure II
+
+1MN Afterburner II
+J5b Enduring Warp Scrambler
+
+150mm Light AutoCannon II
+150mm Light AutoCannon II
+150mm Light AutoCannon II
+
+Small Projectile Burst Aerator II
+
+
+Warrior II x3"></textarea>
+        <div class="hint">Use the in-game fitting window → Copy to Clipboard, or export from PYFA/Zkillboard.</div>
+      </div>
+      <div class="search-row" style="grid-template-columns: 1fr auto; margin-top: 0;">
+        <div class="field">
+          <label for="fitting-regions">Regions to price (comma-separated)</label>
+          <input type="text" id="fitting-regions" placeholder="Jita, Amarr, Dodixie" autocomplete="off">
+        </div>
+        <button class="go" id="fitting-go">Price Fitting</button>
+      </div>
+      <div class="quick-hubs" style="margin-top:10px;">
+        <span>Quick fill:</span>
+        <button class="chip" data-fitting-fill-regions="Jita, Amarr, Dodixie, Rens, Hek">Major hubs</button>
+        <button class="chip" data-fitting-fill-regions="Jita">Jita only</button>
+      </div>
+    </div>
+
+    <div id="fitting-status"></div>
+    <div id="fitting-results"></div>
+  </div>
+
+  <footer>
+    Data from CCP's public ESI API (esi.evetech.net). Order books cache server-side for a few minutes — don't expect second-by-second updates. Arbitrage figures don't account for transport cost, travel time, or risk — only price spread and market fees.
+  </footer>
+</div>
+
+<script>
+const itemInput = document.getElementById('item');
+const regionsInput = document.getElementById('regions');
+const goBtn = document.getElementById('go');
+const statusEl = document.getElementById('status');
+const resultsEl = document.getElementById('results');
+const clockEl = document.getElementById('clock');
+
+function tickClock() {
+  const now = new Date();
+  clockEl.textContent = now.toUTCString().split(' ')[4] + ' UTC';
+}
+tickClock();
+setInterval(tickClock, 1000);
+
+document.querySelectorAll('[data-fill-item]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    itemInput.value = btn.dataset.fillItem;
+  });
+});
+document.querySelectorAll('[data-fill-regions]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    regionsInput.value = btn.dataset.fillRegions;
+  });
+});
+
+function fmtISK(n) {
+  if (n === null || n === undefined) return 'n/a';
+  return n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+function fmtInt(n) {
+  return n.toLocaleString();
+}
+
+function buildDepthSVG(buyLevels, sellLevels) {
+  // Staircase chart: cumulative volume vs price, bids on left (descending
+  // price, walking left from spread), asks on right (ascending price,
+  // walking right from spread).
+  const W = 900, H = 220, PAD = 36;
+  const innerW = W - PAD * 2, innerH = H - PAD * 1.5;
+
+  const maxCum = Math.max(
+    buyLevels.length ? buyLevels[buyLevels.length - 1].cumulative : 0,
+    sellLevels.length ? sellLevels[sellLevels.length - 1].cumulative : 0,
+    1
+  );
+
+  const half = innerW / 2;
+
+  function buyX(i, n) { return PAD + half * (1 - i / Math.max(n, 1)); }
+  function sellX(i, n) { return PAD + half + half * (i / Math.max(n, 1)); }
+  function yFor(cum) { return PAD * 0.4 + innerH - (cum / maxCum) * innerH; }
+
+  function pathFor(levels, xFn) {
+    if (!levels.length) return '';
+    const n = levels.length;
+    let d = `M ${xFn(0, n)} ${yFor(0)}`;
+    let prevCum = 0;
+    levels.forEach((lvl, i) => {
+      const x = xFn(i, n);
+      d += ` L ${x} ${yFor(prevCum)} L ${x} ${yFor(lvl.cumulative)}`;
+      prevCum = lvl.cumulative;
+    });
+    return d;
+  }
+
+  // for buys we walk from spread (i=0, x=half) outward to i=n-1 (x=0)
+  // build path right-to-left so the fill closes nicely
+  function buyPath() {
+    if (!buyLevels.length) return '';
+    const n = buyLevels.length;
+    let pts = [];
+    let cum = 0;
+    pts.push([buyX(0, n), yFor(0)]);
+    buyLevels.forEach((lvl, i) => {
+      const x = buyX(i, n);
+      pts.push([x, yFor(cum)]);
+      cum = lvl.cumulative;
+      pts.push([x, yFor(cum)]);
+    });
+    const last = buyX(n - 1, n);
+    pts.push([last, yFor(0)]);
+    return pts.map((p, i) => (i === 0 ? 'M' : 'L') + ' ' + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ') + ' Z';
+  }
+
+  function sellPath() {
+    if (!sellLevels.length) return '';
+    const n = sellLevels.length;
+    let pts = [];
+    let cum = 0;
+    pts.push([sellX(0, n), yFor(0)]);
+    sellLevels.forEach((lvl, i) => {
+      const x = sellX(i, n);
+      pts.push([x, yFor(cum)]);
+      cum = lvl.cumulative;
+      pts.push([x, yFor(cum)]);
+    });
+    const last = sellX(n - 1, n);
+    pts.push([last, yFor(0)]);
+    return pts.map((p, i) => (i === 0 ? 'M' : 'L') + ' ' + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ') + ' Z';
+  }
+
+  const baseline = yFor(0);
+
+  return `
+  <svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:auto; display:block;">
+    <line x1="${PAD}" y1="${baseline}" x2="${W - PAD}" y2="${baseline}" stroke="#1f2933" stroke-width="1"/>
+    <line x1="${PAD + half}" y1="${PAD*0.4}" x2="${PAD + half}" y2="${baseline}" stroke="#2a3640" stroke-width="1" stroke-dasharray="3,3"/>
+    <path d="${buyPath()}" fill="rgba(79,195,220,0.18)" stroke="#4fc3dc" stroke-width="1.5"/>
+    <path d="${sellPath()}" fill="rgba(232,148,58,0.18)" stroke="#e8943a" stroke-width="1.5"/>
+    <text x="${PAD}" y="${H - 6}" fill="#5f7180" font-size="10" font-family="JetBrains Mono, monospace">bids ←</text>
+    <text x="${W - PAD}" y="${H - 6}" fill="#5f7180" font-size="10" font-family="JetBrains Mono, monospace" text-anchor="end">→ asks</text>
+    <text x="${PAD + half}" y="${PAD*0.4 - 6}" fill="#5f7180" font-size="10" font-family="JetBrains Mono, monospace" text-anchor="middle">spread</text>
+  </svg>`;
+}
+
+function buildTable(levels, side, levelsToShow) {
+  if (!levels.length) {
+    return `<div class="empty-side">No ${side === 'buy' ? 'buy' : 'sell'} orders.</div>`;
+  }
+  const maxCum = levels[Math.min(levelsToShow, levels.length) - 1].cumulative;
+  const rows = levels.slice(0, levelsToShow).map(lvl => {
+    const pct = maxCum ? Math.min(100, (lvl.cumulative / maxCum) * 100) : 0;
+    return `
+      <tr class="depth-row">
+        <td class="price-cell">${fmtISK(lvl.price)}</td>
+        <td>${fmtInt(lvl.volume)}</td>
+        <td class="depth-bar-wrap">
+          <span class="depth-bar" style="width:${pct}%"></span>
+          <span class="depth-bar-text">${fmtInt(lvl.cumulative)}</span>
+        </td>
+        <td>${lvl.orders}</td>
+      </tr>`;
+  }).join('');
+  const more = levels.length > levelsToShow
+    ? `<div class="more-levels">+ ${levels.length - levelsToShow} more price level(s)</div>`
+    : '';
+  return `
+    <table>
+      <thead><tr><th>Price</th><th>Vol</th><th>Cum.</th><th>#</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${more}`;
+}
+
+function renderRegion(region) {
+  const panel = document.createElement('div');
+  panel.className = 'region-panel';
+
+  const spreadStr = region.spread !== null ? fmtISK(region.spread) + ' ISK' : 'n/a';
+
+  panel.innerHTML = `
+    <div class="region-header">
+      <span class="region-name">${region.region_name}</span>
+      <span class="region-id">region_id ${region.region_id}</span>
+    </div>
+    <div class="stats">
+      <div class="stat bid">
+        <div class="stat-label">Best bid</div>
+        <div class="stat-value">${region.best_bid !== null ? fmtISK(region.best_bid) + ' ISK' : 'n/a'}</div>
+        ${region.best_bid_system ? `<div class="stat-system">${region.best_bid_system}</div>` : ''}
+      </div>
+      <div class="stat ask">
+        <div class="stat-label">Best ask</div>
+        <div class="stat-value">${region.best_ask !== null ? fmtISK(region.best_ask) + ' ISK' : 'n/a'}</div>
+        ${region.best_ask_system ? `<div class="stat-system">${region.best_ask_system}</div>` : ''}
+      </div>
+      <div class="stat spread">
+        <div class="stat-label">Spread</div>
+        <div class="stat-value">${spreadStr}</div>
+      </div>
+    </div>
+    <div class="chart-area">
+      ${(region.buy_levels.length || region.sell_levels.length) ? buildDepthSVG(region.buy_levels, region.sell_levels) : '<div class="empty-side">No order data to chart.</div>'}
+    </div>
+    <div class="tables">
+      <div class="table-col buy">
+        <h3>Buy orders (bids)</h3>
+        ${buildTable(region.buy_levels, 'buy', 10)}
+      </div>
+      <div class="table-col sell">
+        <h3>Sell orders (asks)</h3>
+        ${buildTable(region.sell_levels, 'sell', 10)}
+      </div>
+    </div>
+  `;
+  return panel;
+}
+
+async function runQuery() {
+  const item = itemInput.value.trim();
+  const regions = regionsInput.value.trim();
+
+  if (!item) {
+    statusEl.className = 'error';
+    statusEl.textContent = 'Enter an item name first.';
+    return;
+  }
+  if (!regions) {
+    statusEl.className = 'error';
+    statusEl.textContent = 'Enter at least one region.';
+    return;
+  }
+
+  goBtn.disabled = true;
+  statusEl.className = 'loading';
+  statusEl.textContent = `Querying ESI for "${item}" ...`;
+  resultsEl.innerHTML = '';
+
+  try {
+    const url = `/api/depth?item=${encodeURIComponent(item)}&regions=${encodeURIComponent(regions)}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      statusEl.className = 'error';
+      statusEl.textContent = data.error || 'Something went wrong.';
+      return;
+    }
+
+    statusEl.className = '';
+    statusEl.innerHTML = '';
+
+    if (data.note) {
+      const noteEl = document.createElement('span');
+      noteEl.className = 'note';
+      noteEl.textContent = data.note;
+      statusEl.appendChild(noteEl);
+    }
+
+    const header = document.createElement('div');
+    header.className = 'item-header';
+    header.innerHTML = `<span class="item-name">${data.item_name}</span> &nbsp; type_id ${data.type_id}`;
+    resultsEl.appendChild(header);
+
+    data.errors.forEach(err => {
+      const e = document.createElement('div');
+      e.style.color = 'var(--error)';
+      e.style.marginBottom = '14px';
+      e.style.fontSize = '13px';
+      e.textContent = `${err.region_name}: ${err.error}`;
+      resultsEl.appendChild(e);
+    });
+
+    data.results.forEach(region => {
+      resultsEl.appendChild(renderRegion(region));
+    });
+
+    if (!data.results.length && !data.errors.length) {
+      statusEl.className = 'error';
+      statusEl.textContent = 'No results.';
+    }
+  } catch (err) {
+    statusEl.className = 'error';
+    statusEl.textContent = 'Request failed: ' + err.message;
+  } finally {
+    goBtn.disabled = false;
+  }
+}
+
+goBtn.addEventListener('click', runQuery);
+[itemInput, regionsInput].forEach(el => {
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter') runQuery();
+  });
+});
+
+// ---------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ---------------------------------------------------------------------
+// Arbitrage tab
+// ---------------------------------------------------------------------
+const arbItemInput = document.getElementById('arb-item');
+const arbRegionsInput = document.getElementById('arb-regions');
+const arbGoBtn = document.getElementById('arb-go');
+const arbStatusEl = document.getElementById('arb-status');
+const arbResultsEl = document.getElementById('arb-results');
+const accountingInput = document.getElementById('arb-accounting');
+const brokerInput = document.getElementById('arb-broker');
+const factionInput = document.getElementById('arb-faction');
+const corpInput = document.getElementById('arb-corp');
+const feeModeHint = document.getElementById('fee-mode-hint');
+
+let currentFeeMode = 'limit';
+const FEE_MODE_HINTS = {
+  limit: 'Assumes you place a limit order on both ends — broker fee applies to both legs, sales tax applies when your sell order fills. This is the safer, conservative estimate.',
+  instant: 'Assumes you trade instantly against existing orders on both ends (market-order style). No broker fee, no sales tax — but you take whatever the current best price is.',
+};
+
+document.querySelectorAll('[data-fee-mode]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-fee-mode]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFeeMode = btn.dataset.feeMode;
+    feeModeHint.textContent = FEE_MODE_HINTS[currentFeeMode];
+  });
+});
+
+document.querySelectorAll('[data-arb-fill-item]').forEach(btn => {
+  btn.addEventListener('click', () => { arbItemInput.value = btn.dataset.arbFillItem; });
+});
+document.querySelectorAll('[data-arb-fill-regions]').forEach(btn => {
+  btn.addEventListener('click', () => { arbRegionsInput.value = btn.dataset.arbFillRegions; });
+});
+
+function fmtPct(n) {
+  return n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '%';
+}
+
+function renderArbTable(opportunities) {
+  if (!opportunities.length) {
+    return `<div class="arb-table-wrap"><div class="no-arb">No profitable directional pairs found among these regions with the current fee settings.</div></div>`;
+  }
+
+  const rows = opportunities.map(o => `
+    <tr>
+      <td class="route">
+        <div>${o.source_region}<span class="arrow">&rarr;</span>${o.dest_region}</div>
+        ${o.source_system || o.dest_system
+          ? `<div class="route-systems">${o.source_system || '?'}<span class="arrow">&rarr;</span>${o.dest_system || '?'}</div>`
+          : ''}
+      </td>
+      <td class="net-pct ${o.net_margin_pct > 0 ? 'positive' : ''}">${fmtPct(o.net_margin_pct)}</td>
+      <td>${fmtISK(o.buy_price)}</td>
+      <td>${fmtISK(o.sell_price)}</td>
+      <td>${fmtISK(o.gross_margin_per_unit)}</td>
+      <td>${fmtISK(o.buy_side_fee + o.sell_side_fee)}</td>
+      <td>${fmtISK(o.sales_tax)}</td>
+      <td>${fmtISK(o.net_margin_per_unit)}</td>
+      <td>${fmtInt(o.available_volume)}</td>
+      <td>${fmtISK(o.est_total_profit)}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="arb-table-wrap">
+      <table class="arb-table">
+        <thead>
+          <tr>
+            <th>Route</th>
+            <th>Net margin</th>
+            <th>Buy @</th>
+            <th>Sell @</th>
+            <th>Gross/unit</th>
+            <th>Broker fees</th>
+            <th>Sales tax</th>
+            <th>Net/unit</th>
+            <th>Volume cap</th>
+            <th>Est. total profit</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+async function runArbitrageQuery() {
+  const item = arbItemInput.value.trim();
+  const regions = arbRegionsInput.value.trim();
+
+  if (!item) {
+    arbStatusEl.className = 'error';
+    arbStatusEl.textContent = 'Enter an item name first.';
+    return;
+  }
+  const regionList = regions.split(',').map(r => r.trim()).filter(Boolean);
+  if (regionList.length < 2) {
+    arbStatusEl.className = 'error';
+    arbStatusEl.textContent = 'Enter at least two regions to compare.';
+    return;
+  }
+
+  arbGoBtn.disabled = true;
+  arbStatusEl.className = 'loading';
+  arbStatusEl.textContent = `Scanning ${regionList.length} regions for "${item}" arbitrage ...`;
+  arbResultsEl.innerHTML = '';
+
+  const params = new URLSearchParams({
+    item: item,
+    regions: regions,
+    fee_mode: currentFeeMode,
+    accounting: accountingInput.value || 0,
+    broker_relations: brokerInput.value || 0,
+    faction_standing: factionInput.value || 0,
+    corp_standing: corpInput.value || 0,
+  });
+
+  try {
+    const resp = await fetch(`/api/arbitrage?${params.toString()}`);
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      arbStatusEl.className = 'error';
+      arbStatusEl.textContent = data.error || 'Something went wrong.';
+      return;
+    }
+
+    arbStatusEl.className = '';
+    arbStatusEl.innerHTML = '';
+
+    if (data.note) {
+      const noteEl = document.createElement('span');
+      noteEl.className = 'note';
+      noteEl.textContent = data.note;
+      arbStatusEl.appendChild(noteEl);
+    }
+
+    if (data.errors && data.errors.length) {
+      data.errors.forEach(err => {
+        const e = document.createElement('div');
+        e.style.color = 'var(--error)';
+        e.style.marginBottom = '8px';
+        e.style.fontSize = '13px';
+        e.textContent = `${err.region_name}: ${err.error}`;
+        arbResultsEl.appendChild(e);
+      });
+    }
+
+    if (!data.is_plex) {
+      const summary = document.createElement('div');
+      summary.className = 'fee-summary';
+      summary.innerHTML = `
+        <span>Sales tax: <b>${fmtPct(data.sales_tax_rate * 100)}</b></span>
+        <span>Broker fee: <b>${fmtPct(data.broker_fee_rate * 100)}</b></span>
+        <span>Mode: <b>${data.fee_mode}</b></span>
+        <span>Routes checked: <b>${regionList.length * (regionList.length - 1)}</b></span>
+        <span>Profitable routes found: <b>${data.opportunities.length}</b></span>
+      `;
+      arbResultsEl.appendChild(summary);
+    }
+
+    const tableWrap = document.createElement('div');
+    tableWrap.innerHTML = renderArbTable(data.opportunities);
+    arbResultsEl.appendChild(tableWrap.firstElementChild);
+
+  } catch (err) {
+    arbStatusEl.className = 'error';
+    arbStatusEl.textContent = 'Request failed: ' + err.message;
+  } finally {
+    arbGoBtn.disabled = false;
+  }
+}
+
+arbGoBtn.addEventListener('click', runArbitrageQuery);
+[arbItemInput, arbRegionsInput].forEach(el => {
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter') runArbitrageQuery();
+  });
+});
+
+// ---------------------------------------------------------------------
+// Catalog tab
+// ---------------------------------------------------------------------
+const catalogSearchInput = document.getElementById('catalog-search');
+const catalogSearchGo = document.getElementById('catalog-search-go');
+const catalogStatusEl = document.getElementById('catalog-status');
+const catalogSearchResultsEl = document.getElementById('catalog-search-results');
+const catalogTreeEl = document.getElementById('catalog-tree');
+
+let catalogTreeLoaded = false;
+
+function useItemInDepthTab(itemName) {
+  // Switch to Depth tab and prefill the item field, as a convenience
+  // bridge between browsing the catalog and actually looking up prices.
+  document.querySelector('.tab-btn[data-tab="depth"]').click();
+  itemInput.value = itemName;
+  if (!regionsInput.value.trim()) {
+    regionsInput.value = 'Jita';
+  }
+  itemInput.focus();
+}
+
+function renderTreeNode(node) {
+  const hasChildren = node.children && node.children.length > 0;
+  const wrapper = document.createElement('div');
+  wrapper.className = 'tree-node';
+
+  const row = document.createElement('div');
+  row.className = 'tree-row';
+  row.innerHTML = `
+    <span class="tree-toggle">${hasChildren || node.item_count > 0 ? '▸' : ''}</span>
+    <span class="tree-name">${node.name}</span>
+    <span class="tree-count">${node.item_count > 0 ? node.item_count + ' items' : ''}</span>
+  `;
+  wrapper.appendChild(row);
+
+  const childrenWrap = document.createElement('div');
+  childrenWrap.className = 'tree-children';
+  wrapper.appendChild(childrenWrap);
+
+  let expanded = false;
+  let childrenBuilt = false;
+  let itemsLoaded = false;
+
+  row.addEventListener('click', async () => {
+    if (!hasChildren && node.item_count === 0) return;
+
+    expanded = !expanded;
+    row.querySelector('.tree-toggle').textContent = expanded ? '▾' : '▸';
+    childrenWrap.classList.toggle('expanded', expanded);
+
+    if (!expanded) return;
+
+    if (hasChildren && !childrenBuilt) {
+      node.children.forEach(child => {
+        childrenWrap.appendChild(renderTreeNode(child));
+      });
+      childrenBuilt = true;
+    }
+
+    if (node.item_count > 0 && !itemsLoaded) {
+      const loadingEl = document.createElement('div');
+      loadingEl.className = 'tree-loading';
+      loadingEl.textContent = 'Loading items...';
+      childrenWrap.appendChild(loadingEl);
+
+      try {
+        const resp = await fetch(`/api/catalog/group/${node.group_id}`);
+        const data = await resp.json();
+        loadingEl.remove();
+
+        if (!resp.ok) {
+          const errEl = document.createElement('div');
+          errEl.className = 'tree-loading';
+          errEl.style.color = 'var(--error)';
+          errEl.textContent = data.error || 'Failed to load items.';
+          childrenWrap.appendChild(errEl);
+        } else {
+          data.items.forEach(item => {
+            const itemEl = document.createElement('div');
+            itemEl.className = 'item-row';
+            itemEl.innerHTML = `<span>${item.name}</span><span class="type-id">${item.type_id}</span>`;
+            itemEl.addEventListener('click', (e) => {
+              e.stopPropagation();
+              useItemInDepthTab(item.name);
+            });
+            childrenWrap.appendChild(itemEl);
+          });
+        }
+        itemsLoaded = true;
+      } catch (err) {
+        loadingEl.textContent = 'Failed to load items: ' + err.message;
+      }
+    }
+  });
+
+  return wrapper;
+}
+
+async function loadCatalogTree() {
+  if (catalogTreeLoaded) return;
+  catalogTreeLoaded = true;
+
+  catalogTreeEl.innerHTML = '<div class="tree-loading">Loading category tree (this can take a moment on first load)...</div>';
+
+  try {
+    const resp = await fetch('/api/catalog/tree');
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      catalogTreeEl.innerHTML = `<div class="tree-loading" style="color:var(--error)">${data.error || 'Failed to load catalog.'}</div>`;
+      return;
+    }
+
+    catalogTreeEl.innerHTML = '';
+    data.tree.forEach(node => {
+      catalogTreeEl.appendChild(renderTreeNode(node));
+    });
+  } catch (err) {
+    catalogTreeEl.innerHTML = `<div class="tree-loading" style="color:var(--error)">Failed to load catalog: ${err.message}</div>`;
+    catalogTreeLoaded = false;
+  }
+}
+
+function renderSearchResults(results, query) {
+  if (!results.length) {
+    catalogSearchResultsEl.innerHTML = `
+      <div class="search-results-wrap">
+        <div class="search-results-header">Results for "${query}"</div>
+        <div class="no-arb">No items found.</div>
+      </div>`;
+    return;
+  }
+
+  const rows = results.map(r => `
+    <div class="search-result-row" data-item-name="${r.name.replace(/"/g, '&quot;')}">
+      <span class="name">${r.name}</span>
+      <span class="group-name">${r.group_name} &nbsp;·&nbsp; ${r.type_id}</span>
+    </div>`).join('');
+
+  catalogSearchResultsEl.innerHTML = `
+    <div class="search-results-wrap">
+      <div class="search-results-header">${results.length} result(s) for "${query}"</div>
+      ${rows}
+    </div>`;
+
+  catalogSearchResultsEl.querySelectorAll('.search-result-row').forEach(row => {
+    row.addEventListener('click', () => useItemInDepthTab(row.dataset.itemName));
+  });
+}
+
+async function runCatalogSearch() {
+  const query = catalogSearchInput.value.trim();
+  if (query.length < 2) {
+    catalogStatusEl.className = 'error';
+    catalogStatusEl.textContent = 'Enter at least 2 characters to search.';
+    return;
+  }
+
+  catalogStatusEl.className = 'loading';
+  catalogStatusEl.textContent = `Searching for "${query}" (first search builds a full item index and can take a little while) ...`;
+  catalogSearchResultsEl.innerHTML = '';
+
+  try {
+    const resp = await fetch(`/api/catalog/search?q=${encodeURIComponent(query)}`);
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      catalogStatusEl.className = 'error';
+      catalogStatusEl.textContent = data.error || 'Search failed.';
+      return;
+    }
+
+    catalogStatusEl.className = '';
+    catalogStatusEl.textContent = '';
+    renderSearchResults(data.results, data.query);
+  } catch (err) {
+    catalogStatusEl.className = 'error';
+    catalogStatusEl.textContent = 'Search failed: ' + err.message;
+  }
+}
+
+catalogSearchGo.addEventListener('click', runCatalogSearch);
+catalogSearchInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') runCatalogSearch();
+});
+
+// Load the tree lazily the first time the Catalog tab is opened, not on
+// page load - the tree fetch is comparatively heavy (hundreds of ESI
+// calls on first build), so don't pay that cost for people who never
+// open this tab.
+document.querySelector('.tab-btn[data-tab="catalog"]').addEventListener('click', loadCatalogTree);
+
+// ---------------------------------------------------------------------
+// Fitting tab
+// ---------------------------------------------------------------------
+const fittingEftInput = document.getElementById('fitting-eft');
+const fittingRegionsInput = document.getElementById('fitting-regions');
+const fittingGoBtn = document.getElementById('fitting-go');
+const fittingStatusEl = document.getElementById('fitting-status');
+const fittingResultsEl = document.getElementById('fitting-results');
+
+document.querySelectorAll('[data-fitting-fill-regions]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    fittingRegionsInput.value = btn.dataset.fittingFillRegions;
+  });
+});
+
+// If a Catalog item was used to prefill the Depth tab, also mirror to
+// the Fitting tab regions if already set.
+const ROLE_LABELS = { hull: 'hull', module: 'mod', charge: 'chg', drone: 'drone', cargo: 'cargo' };
+
+function renderFittingResults(data) {
+  fittingResultsEl.innerHTML = '';
+
+  if (data.errors && data.errors.length) {
+    data.errors.forEach(err => {
+      const e = document.createElement('div');
+      e.style.cssText = 'color:var(--error);margin-bottom:8px;font-size:13px;';
+      e.textContent = err;
+      fittingResultsEl.appendChild(e);
+    });
+  }
+
+  const regions = data.regions;
+
+  // --- Summary cards (sorted cheapest first) ---
+  const sortedRegions = [...regions].sort((a, b) =>
+    data.region_totals[a].total - data.region_totals[b].total
+  );
+
+  const headerEl = document.createElement('div');
+  headerEl.style.cssText = 'margin-bottom:14px;';
+  headerEl.innerHTML = `<span class="item-name" style="font-size:15px;font-weight:700;color:var(--text-bright)">${data.hull}</span>`
+    + (data.fit_name ? ` <span style="color:var(--text-dim);font-size:13px;">— ${data.fit_name}</span>` : '');
+  fittingResultsEl.appendChild(headerEl);
+
+  const summaryEl = document.createElement('div');
+  summaryEl.className = 'fit-summary';
+  summaryEl.style.gridTemplateColumns = `repeat(${Math.min(regions.length, 5)}, 1fr)`;
+  sortedRegions.forEach((region, idx) => {
+    const tot = data.region_totals[region];
+    const card = document.createElement('div');
+    card.className = 'fit-summary-card' + (idx === 0 ? ' cheapest' : '');
+    card.innerHTML = `
+      <div>
+        <div class="fit-summary-region">${region}</div>
+        ${tot.missing_items > 0 ? `<span class="fit-summary-missing">${tot.missing_items} item(s) not priced</span>` : ''}
+      </div>
+      <div class="fit-summary-total">${fmtISK(tot.total)} ISK</div>
+    `;
+    summaryEl.appendChild(card);
+  });
+  fittingResultsEl.appendChild(summaryEl);
+
+  // --- Itemised table ---
+  // For each item/region, figure out which region has the cheapest price
+  // (to highlight it).
+  function cheapestRegion(item) {
+    let best = null, bestPrice = Infinity;
+    regions.forEach(r => {
+      const p = item.prices[r]?.unit_price;
+      if (p !== null && p !== undefined && p < bestPrice) {
+        bestPrice = p;
+        best = r;
+      }
+    });
+    return best;
+  }
+
+  const regionHeaders = regions.map(r => `<th>${r}</th>`).join('');
+  const rows = data.items.map(item => {
+    const cheapest = cheapestRegion(item);
+    const priceCells = regions.map(r => {
+      const p = item.prices[r];
+      if (!p || p.unit_price === null) return `<td class="no-price">—</td>`;
+      const isCheapest = r === cheapest && regions.length > 1;
+      const cls = isCheapest ? 'cheapest-price' : '';
+      return `<td class="${cls}">${fmtISK(p.total_price)}</td>`;
+    }).join('');
+    const roleLabel = item.role !== 'module'
+      ? `<span class="fit-role-pill">${ROLE_LABELS[item.role] || item.role}</span>` : '';
+    const unresClass = item.unresolved ? ' class="unresolved-item"' : '';
+    return `<tr${unresClass}>
+      <td>${item.name}${roleLabel}</td>
+      <td style="text-align:right">${item.qty}</td>
+      ${priceCells}
+    </tr>`;
+  }).join('');
+
+  // Totals row
+  const totalCells = regions.map(r => {
+    const tot = data.region_totals[r];
+    const isCheapest = sortedRegions[0] === r && regions.length > 1;
+    const cls = isCheapest ? 'cheapest-price' : '';
+    return `<td class="${cls}">${fmtISK(tot.total)}</td>`;
+  }).join('');
+
+  const tableEl = document.createElement('div');
+  tableEl.className = 'fit-item-table-wrap';
+  tableEl.innerHTML = `
+    <table class="fit-table">
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Qty</th>
+          ${regionHeaders}
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+        <tr class="fit-total-row">
+          <td colspan="2">Total</td>
+          ${totalCells}
+        </tr>
+      </tbody>
+    </table>
+  `;
+  fittingResultsEl.appendChild(tableEl);
+}
+
+async function runFittingPrice() {
+  const eft = fittingEftInput.value.trim();
+  const regions = fittingRegionsInput.value.trim();
+
+  if (!eft) {
+    fittingStatusEl.className = 'error';
+    fittingStatusEl.textContent = 'Paste an EFT fitting block first.';
+    return;
+  }
+  if (!regions) {
+    fittingStatusEl.className = 'error';
+    fittingStatusEl.textContent = 'Enter at least one region.';
+    return;
+  }
+
+  fittingGoBtn.disabled = true;
+  fittingStatusEl.className = 'loading';
+  fittingStatusEl.textContent = 'Pricing fitting across regions (fetching one order per item per region) ...';
+  fittingResultsEl.innerHTML = '';
+
+  try {
+    const resp = await fetch('/api/fitting/price', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eft_text: eft, regions }),
+    });
+    const data = await resp.json();
+
+    fittingStatusEl.className = '';
+    fittingStatusEl.textContent = '';
+
+    if (!resp.ok) {
+      fittingStatusEl.className = 'error';
+      fittingStatusEl.textContent = data.error || 'Something went wrong.';
+      return;
+    }
+
+    renderFittingResults(data);
+  } catch (err) {
+    fittingStatusEl.className = 'error';
+    fittingStatusEl.textContent = 'Request failed: ' + err.message;
+  } finally {
+    fittingGoBtn.disabled = false;
+  }
+}
+
+fittingGoBtn.addEventListener('click', runFittingPrice);
+</script>
+</body>
+</html>
